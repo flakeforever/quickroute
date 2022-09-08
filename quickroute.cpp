@@ -12,6 +12,12 @@
 #include <arpa/inet.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
+#include <linux/if_link.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <ifaddrs.h>
+#include <vector>
 
 using namespace std;
 
@@ -27,6 +33,7 @@ using namespace std;
 
 uci_context *ctx = NULL;
 quick_config default_config;
+vector<string> device_list;
 
 int copy_file(const char *in_path, const char *out_path)
 {
@@ -158,48 +165,61 @@ bool load_config(string config_file, quick_config *config)
     return true;
 }
 
-bool interface_exists(string interface_name)
+void add_device(string device_name)
 {
-    bool ret = false;
-    int fdSock = 0;
-    ifconf ifconf_;
-    ifreq ifreq_;
-    char szBuf[20480] = {0};
-
-    ifconf_.ifc_len = 2048;
-    ifconf_.ifc_buf = szBuf;
-
-    if ((fdSock = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    for (size_t i = 0; i < device_list.size(); i++)
     {
-        cout << "socket error" << endl;
-        return ret;
+        if (device_name == device_list[i])
+            return;
     }
 
-    if (ioctl(fdSock, SIOCGIFCONF, &ifconf_))
+    device_list.push_back(device_name);
+}
+
+bool device_exists(string interface_name)
+{
+    for (size_t i = 0; i < device_list.size(); i++)
     {
-        close(fdSock);
-        cout << "ioctl error" << endl;
-        return ret;
+        if (interface_name == device_list[i])
+            return true;
     }
 
-    ifreq *it = ifconf_.ifc_req;
-    const struct ifreq *const end = it + (ifconf_.ifc_len / sizeof(struct ifreq));
+    return false;    
+}
 
-    for (; it != end; ++it)
+int get_all_device()
+{
+    struct ifaddrs *interface_array = NULL, *temp_addr = NULL;
+    int rc = 0;
+
+    rc = getifaddrs(&interface_array); /* retrieve the current interfaces */
+    if (rc == 0)
     {
-        strcpy(ifreq_.ifr_name, it->ifr_name);
+        for (temp_addr = interface_array; temp_addr != NULL; temp_addr = temp_addr->ifa_next)
+        {
+            if (temp_addr->ifa_name)
+                add_device(temp_addr->ifa_name);
+        }
 
-        if (interface_name == ifreq_.ifr_name)
-            ret = true;
+        freeifaddrs(interface_array); /* free the dynamic memory */
+        interface_array = NULL;       /* prevent use after free  */
+    }
+    else
+    {
+        printf("getifaddrs() failed with errno =  %d %s \n",
+               errno, strerror(errno));
+        return rc;
     }
 
-    close(fdSock);
-    return ret;
+    for (size_t i = 0; i < device_list.size(); i++)
+        printf("device: %s\n", device_list[i].c_str());
+
+    return 0;
 }
 
 void wait_interface(string interface_name)
 {
-    while (!interface_exists(interface_name))
+    while (!device_exists(interface_name))
         msleep(1000);
 
     printf("interface: %s is ready.\n", interface_name.c_str());
@@ -426,6 +446,8 @@ bool process_route()
 
 int main(int argc, char **argv)
 {
+    get_all_device();
+
     process_clean();
     if (!load_config(UCI_CONFIG_FILE, &default_config))
     {
