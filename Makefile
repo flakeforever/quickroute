@@ -4,7 +4,7 @@ HEADER	=
 OUT	= quickroute
 CC	 = g++
 FLAGS	 = -g -c -Wall -std=c++11
-LFLAGS	 = -luci -lpthread -lz -lstdc++
+LFLAGS	 = -luci -lstdc++
 
 all : quickroute
 .PHONY : clean
