@@ -58,9 +58,10 @@ int copy_file(const char *in_path, const char *out_path)
 
 void msleep(int tms)
 {
-    struct timeval tv;
+    timeval tv;
     tv.tv_sec = tms / 1000;
     tv.tv_usec = (tms % 1000) * 1000;
+    
     select(0, NULL, NULL, NULL, &tv);
 }
 
@@ -359,8 +360,8 @@ quick_route::~quick_route()
 
 bool quick_route::load_config(string config_file)
 {
-    struct uci_package *pkg = NULL;
-    struct uci_element *e;
+    uci_package *pkg = NULL;
+    uci_element *e;
 
     if (access(config_file.c_str(), F_OK) == -1)
         return false;
@@ -376,7 +377,7 @@ bool quick_route::load_config(string config_file)
 
     uci_foreach_element(&pkg->sections, e)
     {
-        struct uci_section *s = uci_to_section(e);
+        uci_section *s = uci_to_section(e);
 
         string section_type = s->type;
         if (section_type == "default")
