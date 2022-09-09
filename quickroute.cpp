@@ -17,6 +17,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/select.h>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
