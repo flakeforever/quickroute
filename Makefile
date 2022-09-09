@@ -1,3 +1,5 @@
+prefix=/usr
+
 OBJS	= quickroute.o config.o
 SOURCE	= quickroute.cpp config.cpp
 HEADER	= 
@@ -20,3 +22,9 @@ config.o: config.cpp
 
 clean:
 	rm -f $(OBJS) $(OUT)
+
+install: quickroute
+# install -m 0755 $(OUT) $(prefix)/sbin
+
+uninstall:
+# rm -f $(prefix)/sbin/$(OUT)
