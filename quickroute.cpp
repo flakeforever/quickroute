@@ -64,7 +64,7 @@ void msleep(int tms)
     timeval tv;
     tv.tv_sec = tms / 1000;
     tv.tv_usec = (tms % 1000) * 1000;
-    
+
     select(0, NULL, NULL, NULL, &tv);
 }
 
@@ -77,18 +77,21 @@ bool lookup_interface(string interface_name, int wait_timeout)
         quick_device devices;
 
         if (devices.update() == 0)
-            device_exists = devices.check_exists(interface_name);
-
-        wait_timeout -= 1000;
-        if (wait_timeout <= 0)
         {
-            printf("interface: %s is not ready.\n", interface_name.c_str());
-            return false;
-        }
+            device_exists = devices.check_exists(interface_name);
+            if (!device_exists)
+            {
+                wait_timeout -= 1000;
+                if (wait_timeout <= 0)
+                {
+                    printf("interface: %s is not ready.\n", interface_name.c_str());
+                    return false;
+                }
 
-        msleep(1000);     
-    }
-    while(!device_exists);
+                msleep(1000);
+            }
+        }
+    } while (!device_exists);
 
     printf("interface: %s is ready.\n", interface_name.c_str());
     return true;
@@ -179,6 +182,9 @@ int quick_route::execute(const char *cmd, char *result)
 
             strcat(result, buf_ps);
         }
+
+        if (result_size > 0)
+            printf("result: %s\n", result);
 
         pclose(ptr);
         ptr = NULL;
@@ -444,6 +450,7 @@ void quick_route::process()
 int main(int argc, char **argv)
 {
     quick_route qroute;
+
     if (qroute.load_config(TEMP_CONFIG_FILE))
     {
         qroute.clean();
@@ -459,7 +466,6 @@ int main(int argc, char **argv)
 
     if (qroute.config.interface != "")
     {
-        copy_file(UCI_CONFIG_FILE, TEMP_CONFIG_FILE);
         bool ready = false;
         ready = lookup_interface(qroute.config.interface, WAIT_TIMEOUT * 1000);
 
