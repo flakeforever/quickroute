@@ -1,39 +1,38 @@
+/*
+ * This file is part of the quickroute project.
+ * Quick Route is a quick routing configuration tool and it only work in OpenWrt.
+ * Copyright (C) 2017-2022 The Quick Route Authors.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <vector>
-#include "config.h"
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <net/if.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/ioctl.h>
-#include <sys/time.h>
-#include <linux/if_link.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netdb.h>
 #include <ifaddrs.h>
-#include <vector>
+#include <unistd.h>
+#include "quickroute.h"
 
 using namespace std;
 
 #define BUF_SIZE 65536 // 2^16
 #define CMD_RESULT_BUF_SIZE 1024
-
-#define IP_FILE "/usr/sbin/ip"
-#define IPSET_FILE "/usr/sbin/ipset"
-#define IPTABLES_FILE "/usr/sbin/iptables"
+#define WAIT_TIMEOUT 60
 
 #define UCI_CONFIG_FILE "/etc/config/quickroute"
 #define TEMP_CONFIG_FILE "/tmp/quickroute"
-
-uci_context *ctx = NULL;
-quick_config default_config;
-vector<string> device_list;
 
 int copy_file(const char *in_path, const char *out_path)
 {
@@ -57,39 +56,6 @@ int copy_file(const char *in_path, const char *out_path)
     return EXIT_SUCCESS;
 }
 
-int execute(const char *cmd, char *result)
-{
-    int ret = -1;
-    char buf_ps[CMD_RESULT_BUF_SIZE];
-    char ps[CMD_RESULT_BUF_SIZE] = {0};
-    FILE *ptr;
-
-    strcpy(ps, cmd);
-    printf("execute: %s\n", cmd);
-
-    if ((ptr = popen(ps, "r")) != NULL)
-    {
-        while (fgets(buf_ps, sizeof(buf_ps), ptr) != NULL)
-        {
-            strcat(result, buf_ps);
-            if (strlen(result) > CMD_RESULT_BUF_SIZE)
-            {
-                break;
-            }
-        }
-        pclose(ptr);
-        ptr = NULL;
-        ret = 0;
-    }
-    else
-    {
-        printf("popen %s error\n", ps);
-        ret = -1;
-    }
-
-    return ret;
-}
-
 void msleep(int tms)
 {
     struct timeval tv;
@@ -98,74 +64,33 @@ void msleep(int tms)
     select(0, NULL, NULL, NULL, &tv);
 }
 
-bool check_environment()
+bool lookup_interface(string interface_name, int wait_timeout)
 {
-    if (access(IP_FILE, F_OK) == -1)
-        return false;
+    bool device_exists = false;
 
-    if (access(IPSET_FILE, F_OK) == -1)
-        return false;
+    do
+    {
+        quick_device devices;
 
-    if (access(IPTABLES_FILE, F_OK) == -1)
-        return false;
+        if (devices.update() == 0)
+            device_exists = devices.check_exists(interface_name);
 
+        wait_timeout -= 1000;
+        if (wait_timeout <= 0)
+        {
+            printf("interface: %s is not ready.\n", interface_name.c_str());
+            return false;
+        }
+
+        msleep(1000);     
+    }
+    while(!device_exists);
+
+    printf("interface: %s is ready.\n", interface_name.c_str());
     return true;
 }
 
-bool load_config(string config_file, quick_config *config)
-{
-    struct uci_package *pkg = NULL;
-    struct uci_element *e;
-
-    ctx = uci_alloc_context();
-
-    if (UCI_OK != uci_load(ctx, config_file.c_str(), &pkg))
-    {
-        uci_free_context(ctx);
-        ctx = NULL;
-
-        return false;
-    }
-
-    uci_foreach_element(&pkg->sections, e)
-    {
-        struct uci_section *s = uci_to_section(e);
-
-        string section_type = s->type;
-        if (section_type == "default")
-        {
-            config->interface = lookup_option_string(ctx, s, "interface");
-            config->mode = lookup_option_string(ctx, s, "mode");
-            config->fwmark = lookup_option_integer(ctx, s, "fwmark");
-            config->route_table = lookup_option_integer(ctx, s, "route_table");
-
-            config->src_ip = lookup_option_string(ctx, s, "src_ip");
-            config->src_ipset_name = lookup_option_string(ctx, s, "src_ipset_name");
-            config->src_ipset_enabled = lookup_option_boolean(ctx, s, "src_ipset_enabled");
-            config->src_ipset_inverted = lookup_option_boolean(ctx, s, "src_ipset_inverted");
-
-            config->dest_ip = lookup_option_string(ctx, s, "dest_ip");
-            config->dest_ipset_name = lookup_option_string(ctx, s, "dest_ipset_name");
-            config->dest_ipset_enabled = lookup_option_boolean(ctx, s, "dest_ipset_enabled");
-            config->dest_ipset_inverted = lookup_option_boolean(ctx, s, "dest_ipset_inverted");
-        }
-        else if (section_type == "interface")
-        {
-            quick_interface *interface = new quick_interface();
-            interface->name = lookup_option_string(ctx, s, "name");
-            interface->gateway = lookup_option_string(ctx, s, "gateway");
-
-            config->interface_list.push_back(interface);
-        }
-    }
-
-    uci_unload(ctx, pkg);
-    uci_free_context(ctx);
-    ctx = NULL;
-    return true;
-}
-
-void add_device(string device_name)
+void quick_device::add_device(string device_name)
 {
     for (size_t i = 0; i < device_list.size(); i++)
     {
@@ -176,21 +101,22 @@ void add_device(string device_name)
     device_list.push_back(device_name);
 }
 
-bool device_exists(string interface_name)
+quick_device::quick_device()
 {
-    for (size_t i = 0; i < device_list.size(); i++)
-    {
-        if (interface_name == device_list[i])
-            return true;
-    }
-
-    return false;    
 }
 
-int get_all_device()
+quick_device::~quick_device()
 {
-    struct ifaddrs *interface_array = NULL, *temp_addr = NULL;
+}
+
+int quick_device::update()
+{
+    ifaddrs *interface_array = NULL;
+    ifaddrs *temp_addr = NULL;
     int rc = 0;
+
+    if (device_list.size() > 0)
+        device_list.clear();
 
     rc = getifaddrs(&interface_array); /* retrieve the current interfaces */
     if (rc == 0)
@@ -206,258 +132,339 @@ int get_all_device()
     }
     else
     {
-        printf("getifaddrs() failed with errno =  %d %s \n",
+        printf("getifaddrs() failed with errno =  %d %s\n",
                errno, strerror(errno));
         return rc;
     }
 
-    for (size_t i = 0; i < device_list.size(); i++)
-        printf("device: %s\n", device_list[i].c_str());
-
     return 0;
 }
 
-void wait_interface(string interface_name)
+bool quick_device::check_exists(string device_name)
 {
-    while (!device_exists(interface_name))
-        msleep(1000);
-
-    printf("interface: %s is ready.\n", interface_name.c_str());
-}
-
-quick_interface *lookup_interface(quick_config *config, string interface_name)
-{
-    for (size_t i = 0; i < config->interface_list.size(); i++)
+    for (size_t i = 0; i < device_list.size(); i++)
     {
-        quick_interface *interface = config->interface_list[i];
-
-        if (interface->name == interface_name)
-            return interface;
-    }
-
-    return NULL;
-}
-
-bool add_ip_rule(quick_config *config)
-{
-    if (config)
-    {
-        char command[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-
-        sprintf(command, "ip rule add fwmark %d lookup %d", config->fwmark, config->route_table);
-        if (execute(command, result) == 0)
+        if (device_name == device_list[i])
             return true;
     }
 
     return false;
 }
 
-bool delete_ip_rule(quick_config *config)
+int quick_route::execute(const char *cmd, char *result)
 {
-    if (config)
+    int ret = -1;
+    char buf_ps[CMD_RESULT_BUF_SIZE] = {0};
+    char ps[CMD_RESULT_BUF_SIZE] = {0};
+    FILE *ptr;
+
+    if (cmd == NULL || result == NULL)
+        return -1;
+
+    strcpy(ps, cmd);
+    printf("execute: %s\n", cmd);
+
+    if ((ptr = popen(ps, "r")) != NULL)
     {
-        char command[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-
-        sprintf(command, "ip rule del fwmark %d lookup %d",
-                config->fwmark, config->route_table);
-
-        if (execute(command, result) == 0)
-            return true;
-    }
-
-    return false;
-}
-
-bool add_ip_route(quick_config *config)
-{
-    if (config)
-    {
-        char command[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-        quick_interface *interface = lookup_interface(config, config->interface);
-
-        if (interface->gateway != "")
-            sprintf(command, "ip route add default via %s table %d",
-                    interface->gateway.c_str(), config->route_table);
-        else
-            sprintf(command, "ip route add default dev %s table %d",
-                    interface->name.c_str(), config->route_table);
-
-        if (execute(command, result) == 0)
-            return true;
-    }
-
-    return false;
-}
-
-bool delete_ip_route(quick_config *config)
-{
-    if (config)
-    {
-        char command[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-        quick_interface *interface = lookup_interface(config, config->interface);
-
-        if (interface->gateway != "")
-            sprintf(command, "ip route del default via %s table %d",
-                    interface->gateway.c_str(), config->route_table);
-        else
-            sprintf(command, "ip route del default dev %s table %d",
-                    interface->name.c_str(), config->route_table);
-
-        if (execute(command, result) == 0)
-            return true;
-    }
-
-    return false;
-}
-
-bool add_ip_tables(quick_config *config)
-{
-    if (config)
-    {
-        char command[1024] = {0};
-        char src_address[255] = {0};
-        char dest_address[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-
-        if (config->src_ipset_enabled)
+        int result_size = 0;
+        while (fgets(buf_ps, sizeof(buf_ps), ptr) != NULL)
         {
-            if (!config->src_ipset_inverted)
-                sprintf(src_address, "-m set --match-set %s src",
-                        config->src_ipset_name.c_str());
-            else
-                sprintf(src_address, "-m set ! --match-set %s src",
-                        config->src_ipset_name.c_str());
-        }
-        else
-            sprintf(src_address, "-s %s", config->src_ip.c_str());
+            result_size += strlen(buf_ps);
+            if (result_size > CMD_RESULT_BUF_SIZE)
+                break;
 
-        if (config->mode == "rule")
-        {
-            if (config->dest_ipset_enabled)
-            {
-                if (!config->dest_ipset_inverted)
-                    sprintf(dest_address, "-m set --match-set %s dst",
-                            config->dest_ipset_name.c_str());
-                else
-                    sprintf(dest_address, "-m set ! --match-set %s dst",
-                            config->dest_ipset_name.c_str());
-            }
-            else
-                sprintf(dest_address, "-d %s", config->dest_ip.c_str());
-        }
-        else if (config->mode == "global")
-            sprintf(dest_address, "-d %s", "0.0.0.0/0");
-
-        sprintf(command, "iptables -t mangle -A PREROUTING %s %s -j MARK --set-mark %d",
-                src_address, dest_address, config->fwmark);
-
-        if (execute(command, result) == 0)
-            return true;
-    }
-
-    return false;
-}
-
-bool delete_ip_tables(quick_config *config)
-{
-    if (config)
-    {
-        char command[1024] = {0};
-        char src_address[255] = {0};
-        char dest_address[255] = {0};
-        char result[CMD_RESULT_BUF_SIZE] = {0};
-
-        if (config->src_ipset_enabled)
-        {
-            if (!config->src_ipset_inverted)
-                sprintf(src_address, "-m set --match-set %s src",
-                        config->src_ipset_name.c_str());
-            else
-                sprintf(src_address, "-m set ! --match-set %s src",
-                        config->src_ipset_name.c_str());
-        }
-        else
-            sprintf(src_address, "-s %s", config->src_ip.c_str());
-
-        if (config->mode == "rule")
-        {
-            if (config->dest_ipset_enabled)
-            {
-                if (!config->dest_ipset_inverted)
-                    sprintf(dest_address, "-m set --match-set %s dst",
-                            config->dest_ipset_name.c_str());
-                else
-                    sprintf(dest_address, "-m set ! --match-set %s dst",
-                            config->dest_ipset_name.c_str());
-            }
-            else
-                sprintf(dest_address, "-d %s", config->dest_ip.c_str());
-        }
-        else if (config->mode == "global")
-            sprintf(dest_address, "-d %s", "0.0.0.0/0");
-
-        sprintf(command, "iptables -t mangle -D PREROUTING %s %s -j MARK --set-mark %d",
-                src_address, dest_address, config->fwmark);
-
-        if (execute(command, result) == 0)
-            return true;
-    }
-
-    return false;
-}
-
-void process_clean()
-{
-    if (access(TEMP_CONFIG_FILE, F_OK) != -1)
-    {
-        quick_config temp_config;
-
-        if (load_config(TEMP_CONFIG_FILE, &temp_config))
-        {
-            if (temp_config.mode != "direct")
-            {
-                delete_ip_tables(&temp_config);
-                delete_ip_route(&temp_config);
-                delete_ip_rule(&temp_config);
-            }
+            strcat(result, buf_ps);
         }
 
-        remove(TEMP_CONFIG_FILE);
+        pclose(ptr);
+        ptr = NULL;
+        ret = 0;
     }
+    else
+    {
+        printf("popen %s error\n", ps);
+        ret = -2;
+    }
+
+    return ret;
 }
 
-bool process_route()
+bool quick_route::add_ip_rule()
 {
-    if (default_config.mode == "direct")
+    char command[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
+
+    sprintf(command, "ip rule add fwmark %d lookup %d", config.fwmark, config.route_table);
+    if (execute(command, result) == 0)
         return true;
 
-    add_ip_rule(&default_config);
-    add_ip_route(&default_config);
-    add_ip_tables(&default_config);
+    return false;
+}
 
-    copy_file(UCI_CONFIG_FILE, TEMP_CONFIG_FILE);
+bool quick_route::delete_ip_rule()
+{
+    char command[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
 
+    sprintf(command, "ip rule del fwmark %d lookup %d",
+            config.fwmark, config.route_table);
+
+    if (execute(command, result) == 0)
+        return true;
+
+    return false;
+}
+
+bool quick_route::add_ip_route()
+{
+    char command[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
+    quick_interface *interface = config.get_interface(config.interface);
+
+    if (interface->gateway != "")
+        sprintf(command, "ip route add default via %s table %d",
+                interface->gateway.c_str(), config.route_table);
+    else
+        sprintf(command, "ip route add default dev %s table %d",
+                interface->name.c_str(), config.route_table);
+
+    if (execute(command, result) == 0)
+        return true;
+
+    return false;
+}
+
+bool quick_route::delete_ip_route()
+{
+    char command[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
+    quick_interface *interface = config.get_interface(config.interface);
+
+    if (interface->gateway != "")
+        sprintf(command, "ip route del default via %s table %d",
+                interface->gateway.c_str(), config.route_table);
+    else
+        sprintf(command, "ip route del default dev %s table %d",
+                interface->name.c_str(), config.route_table);
+
+    if (execute(command, result) == 0)
+        return true;
+
+    return false;
+}
+
+bool quick_route::add_prerouting()
+{
+    char command[1024] = {0};
+    char src_address[255] = {0};
+    char dest_address[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
+
+    if (config.src_ipset.enabled)
+    {
+        if (!config.src_ipset.inverted)
+            sprintf(src_address, "-m set --match-set %s src",
+                    config.src_ipset.name.c_str());
+        else
+            sprintf(src_address, "-m set ! --match-set %s src",
+                    config.src_ipset.name.c_str());
+    }
+    else
+        sprintf(src_address, "-s %s", config.src_ip.c_str());
+
+    if (config.mode == "rule")
+    {
+        if (config.dest_ipset.enabled)
+        {
+            if (!config.dest_ipset.inverted)
+                sprintf(dest_address, "-m set --match-set %s dst",
+                        config.dest_ipset.name.c_str());
+            else
+                sprintf(dest_address, "-m set ! --match-set %s dst",
+                        config.dest_ipset.name.c_str());
+        }
+        else
+            sprintf(dest_address, "-d %s", config.dest_ip.c_str());
+    }
+    else if (config.mode == "global")
+        sprintf(dest_address, "-d %s", "0.0.0.0/0");
+
+    sprintf(command, "iptables -t mangle -A PREROUTING %s %s -j MARK --set-mark %d",
+            src_address, dest_address, config.fwmark);
+
+    if (execute(command, result) == 0)
+        return true;
+
+    return false;
+}
+
+bool quick_route::delete_prerouting()
+{
+    char command[1024] = {0};
+    char src_address[255] = {0};
+    char dest_address[255] = {0};
+    char result[CMD_RESULT_BUF_SIZE] = {0};
+
+    if (config.src_ipset.enabled)
+    {
+        if (!config.src_ipset.inverted)
+            sprintf(src_address, "-m set --match-set %s src",
+                    config.src_ipset.name.c_str());
+        else
+            sprintf(src_address, "-m set ! --match-set %s src",
+                    config.src_ipset.name.c_str());
+    }
+    else
+        sprintf(src_address, "-s %s", config.src_ip.c_str());
+
+    if (config.mode == "rule")
+    {
+        if (config.dest_ipset.enabled)
+        {
+            if (!config.dest_ipset.inverted)
+                sprintf(dest_address, "-m set --match-set %s dst",
+                        config.dest_ipset.name.c_str());
+            else
+                sprintf(dest_address, "-m set ! --match-set %s dst",
+                        config.dest_ipset.name.c_str());
+        }
+        else
+            sprintf(dest_address, "-d %s", config.dest_ip.c_str());
+    }
+    else if (config.mode == "global")
+        sprintf(dest_address, "-d %s", "0.0.0.0/0");
+
+    sprintf(command, "iptables -t mangle -D PREROUTING %s %s -j MARK --set-mark %d",
+            src_address, dest_address, config.fwmark);
+
+    if (execute(command, result) == 0)
+        return true;
+
+    return false;
+}
+
+quick_route::quick_route()
+{
+    ctx = NULL;
+}
+
+quick_route::~quick_route()
+{
+    if (ctx != NULL)
+    {
+        uci_free_context(ctx);
+        ctx = NULL;
+    }
+}
+
+bool quick_route::load_config(string config_file)
+{
+    struct uci_package *pkg = NULL;
+    struct uci_element *e;
+
+    if (access(config_file.c_str(), F_OK) == -1)
+        return false;
+
+    ctx = uci_alloc_context();
+
+    if (UCI_OK != uci_load(ctx, config_file.c_str(), &pkg))
+    {
+        uci_free_context(ctx);
+        ctx = NULL;
+        return false;
+    }
+
+    uci_foreach_element(&pkg->sections, e)
+    {
+        struct uci_section *s = uci_to_section(e);
+
+        string section_type = s->type;
+        if (section_type == "default")
+        {
+            config.interface = lookup_option_string(ctx, s, "interface");
+            config.mode = lookup_option_string(ctx, s, "mode");
+            config.fwmark = lookup_option_integer(ctx, s, "fwmark");
+            config.route_table = lookup_option_integer(ctx, s, "route_table");
+
+            config.src_ip = lookup_option_string(ctx, s, "src_ip");
+            config.src_ipset.name = lookup_option_string(ctx, s, "src_ipset_name");
+            config.src_ipset.enabled = lookup_option_boolean(ctx, s, "src_ipset_enabled");
+            config.src_ipset.inverted = lookup_option_boolean(ctx, s, "src_ipset_inverted");
+
+            config.dest_ip = lookup_option_string(ctx, s, "dest_ip");
+            config.dest_ipset.name = lookup_option_string(ctx, s, "dest_ipset_name");
+            config.dest_ipset.enabled = lookup_option_boolean(ctx, s, "dest_ipset_enabled");
+            config.dest_ipset.inverted = lookup_option_boolean(ctx, s, "dest_ipset_inverted");
+        }
+        else if (section_type == "interface")
+        {
+            quick_interface *interface = new quick_interface();
+            interface->name = lookup_option_string(ctx, s, "name");
+            interface->gateway = lookup_option_string(ctx, s, "gateway");
+
+            config.interface_list.push_back(interface);
+        }
+    }
+
+    uci_unload(ctx, pkg);
+    uci_free_context(ctx);
+    ctx = NULL;
     return true;
+}
+
+void quick_route::reset_config()
+{
+    config.reset();
+}
+
+void quick_route::clean()
+{
+    if (config.mode == "direct")
+        return;
+
+    delete_prerouting();
+    delete_ip_route();
+    delete_ip_rule();
+}
+
+void quick_route::process()
+{
+    if (config.mode == "direct")
+        return;
+
+    add_ip_rule();
+    add_ip_route();
+    add_prerouting();
 }
 
 int main(int argc, char **argv)
 {
-    get_all_device();
+    quick_route qroute;
+    if (qroute.load_config(TEMP_CONFIG_FILE))
+    {
+        qroute.clean();
+        qroute.reset_config();
+        remove(TEMP_CONFIG_FILE);
+    }
 
-    process_clean();
-    if (!load_config(UCI_CONFIG_FILE, &default_config))
+    if (!qroute.load_config(UCI_CONFIG_FILE))
     {
         cout << "load config is failed." << endl;
         exit(EXIT_SUCCESS);
     }
 
-    if (default_config.interface != "")
-        wait_interface(default_config.interface);
+    if (qroute.config.interface != "")
+    {
+        copy_file(UCI_CONFIG_FILE, TEMP_CONFIG_FILE);
+        bool ready = false;
+        ready = lookup_interface(qroute.config.interface, WAIT_TIMEOUT * 1000);
 
-    process_route();
+        if (ready)
+        {
+            qroute.process();
+            copy_file(UCI_CONFIG_FILE, TEMP_CONFIG_FILE);
+        }
+    }
+
     exit(EXIT_SUCCESS);
 }

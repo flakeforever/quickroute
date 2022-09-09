@@ -20,53 +20,48 @@
 #pragma once
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string>
 #include <vector>
-#include "uci.h"
+#include "config.h"
 
-using namespace std;
-
-string lookup_option_string(struct uci_context *ctx, struct uci_section *s, const char *name);
-int lookup_option_integer(struct uci_context *ctx, struct uci_section *s, const char *name);
-bool lookup_option_boolean(struct uci_context *ctx, struct uci_section *s, const char *name);
-
-class quick_interface
+class quick_device
 {
+private:
+    vector<string> device_list;    
+protected:
+    void add_device(string device_name);
 public:
-    string name;
-    string gateway;
+    quick_device();
+    ~quick_device();
 
-    quick_interface();
-    ~quick_interface();
+    int update();
+    bool check_exists(string device_name);
 };
 
-class quick_ipset
+class quick_route
 {
-public:
-    string name;
-    bool enabled;
-    bool inverted;
+private:
+    uci_context *ctx;
+protected:
+    int execute(const char *cmd, char *result);
 
-    quick_ipset();
-    ~quick_ipset();
+    bool add_ip_rule();
+    bool delete_ip_rule();
+    bool add_ip_route();
+    bool delete_ip_route();
+    bool add_prerouting();
+    bool delete_prerouting();
+public:
+    quick_config config;
+
+    quick_route();
+    ~quick_route();
+
+    bool load_config(string config_file);
+    void reset_config();
+
+    void clean();
+    void process();
 };
 
-class quick_config
-{
-public:
-    string interface;
-    string mode;
-    int fwmark;
-    int route_table;
-    string src_ip;
-    quick_ipset src_ipset;
-    string dest_ip;
-    quick_ipset dest_ipset;
-    vector<quick_interface *> interface_list;
-
-    quick_config();
-    ~quick_config();
-
-    quick_interface *get_interface(string interface_name);
-    void reset();
-};
