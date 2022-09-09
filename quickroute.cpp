@@ -416,6 +416,8 @@ bool quick_route::load_config(string config_file)
         }
     }
 
+    printf("config file %s mode %s interface %s\n", config_file.c_str(), config.mode.c_str(), config.interface.c_str());
+
     uci_unload(ctx, pkg);
     uci_free_context(ctx);
     ctx = NULL;
