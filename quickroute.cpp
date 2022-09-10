@@ -26,6 +26,7 @@
 #include <string.h>
 #include <ifaddrs.h>
 #include <unistd.h>
+#include <csignal>
 #include "quickroute.h"
 
 using namespace std;
@@ -36,6 +37,8 @@ using namespace std;
 
 #define UCI_CONFIG_FILE "/etc/config/quickroute"
 #define TEMP_CONFIG_FILE "/tmp/quickroute"
+
+quick_route qroute;
 
 int copy_file(const char *in_path, const char *out_path)
 {
@@ -356,6 +359,7 @@ bool quick_route::delete_prerouting()
 quick_route::quick_route()
 {
     ctx = NULL;
+    active = false;
 }
 
 quick_route::~quick_route()
@@ -431,6 +435,8 @@ void quick_route::reset_config()
 
 void quick_route::clean()
 {
+    active = false;
+
     if (config.mode == "direct")
         return;
 
@@ -441,6 +447,8 @@ void quick_route::clean()
 
 void quick_route::process()
 {
+    active = true;
+
     if (config.mode == "direct")
         return;
 
@@ -449,16 +457,26 @@ void quick_route::process()
     add_prerouting();
 }
 
+void signal_handler(int signum)
+{
+    cout << "Interrupt signal (" << signum << ") received.\n";
+
+    // cleanup and close up stuff here
+    // terminate program
+    if (signum == SIGINT || signum == SIGTERM)
+    {
+        if (qroute.active)
+            qroute.clean();
+    }        
+
+    exit(signum);
+}
+
 int main(int argc, char **argv)
 {
-    quick_route qroute;
-
-    if (qroute.load_config(TEMP_CONFIG_FILE))
-    {
-        qroute.clean();
-        qroute.reset_config();
-        remove(TEMP_CONFIG_FILE);
-    }
+    // register signal SIGINT and signal handler
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
     if (!qroute.load_config(UCI_CONFIG_FILE))
     {
@@ -468,14 +486,13 @@ int main(int argc, char **argv)
 
     if (qroute.config.interface != "")
     {
-        bool ready = false;
-        ready = lookup_interface(qroute.config.interface, WAIT_TIMEOUT * 1000);
-
-        if (ready)
-        {
+        if (lookup_interface(qroute.config.interface, 0))
             qroute.process();
-            copy_file(UCI_CONFIG_FILE, TEMP_CONFIG_FILE);
-        }
+    }
+
+    while (true)
+    {
+        sleep(1);
     }
 
     exit(EXIT_SUCCESS);

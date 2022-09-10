@@ -54,6 +54,7 @@ protected:
     bool delete_prerouting();
 public:
     quick_config config;
+    bool active;
 
     quick_route();
     ~quick_route();
