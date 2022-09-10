@@ -23,7 +23,7 @@ config.o: config.cpp
 clean:
 	rm -f $(OBJS) $(OUT)
 
-install: quickroute
+install: 
 # install -m 0755 $(OUT) $(prefix)/sbin
 
 uninstall:

@@ -535,7 +535,7 @@ int main(int argc, char **argv)
 
         printf("device_name %s\n", device_name.c_str());
 
-        if (lookup_device(qroute.config.interface, 0))
+        if (lookup_device(device_name, 0))
             qroute.process();
     }
 
