@@ -72,6 +72,17 @@ void msleep(int tms)
     select(0, NULL, NULL, NULL, &tv);
 }
 
+bool ping(const char *ip)
+{
+    char command[255] = {0};
+    sprintf(command, "ping -c1 -s1 %s > /dev/null 2>&1", ip);
+    int x = system(command);
+    if (x == 0)
+        return true;
+    else
+        return false;
+}
+
 bool lookup_device(string interface_name, int wait_timeout)
 {
     bool device_exists = false;
@@ -242,6 +253,18 @@ int quick_route::execute(const char *cmd, char *result)
     }
 
     return ret;
+}
+
+void quick_route::wait_gateway()
+{
+    quick_interface *interface = config.get_interface(config.interface);
+
+    if (interface->gateway != "")
+    {
+        bool ip_available = false;
+        while(!ip_available)
+            ip_available = ping(interface->gateway.c_str());
+    }
 }
 
 bool quick_route::add_ip_rule()
@@ -489,14 +512,16 @@ void quick_route::clean()
 
 void quick_route::process()
 {
-    active = true;
-
     if (config.mode == "direct")
         return;
+
+    wait_gateway();
 
     add_ip_rule();
     add_ip_route();
     add_prerouting();
+
+    active = true;
 }
 
 void signal_handler(int signum)

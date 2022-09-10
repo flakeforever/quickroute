@@ -46,6 +46,7 @@ private:
 protected:
     int execute(const char *cmd, char *result);
 
+    void wait_gateway();
     bool add_ip_rule();
     bool delete_ip_rule();
     bool add_ip_route();
