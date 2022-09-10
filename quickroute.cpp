@@ -35,8 +35,9 @@ using namespace std;
 #define CMD_RESULT_BUF_SIZE 1024
 #define WAIT_TIMEOUT 60
 
+#define NETWORK_CONFIG_FILE "/etc/config/network"
 #define UCI_CONFIG_FILE "/etc/config/quickroute"
-#define TEMP_CONFIG_FILE "/tmp/quickroute"
+//#define TEMP_CONFIG_FILE "/tmp/quickroute"
 
 quick_route qroute;
 
@@ -71,7 +72,7 @@ void msleep(int tms)
     select(0, NULL, NULL, NULL, &tv);
 }
 
-bool lookup_interface(string interface_name, int wait_timeout)
+bool lookup_device(string interface_name, int wait_timeout)
 {
     bool device_exists = false;
 
@@ -98,6 +99,47 @@ bool lookup_interface(string interface_name, int wait_timeout)
 
     printf("interface: %s is ready.\n", interface_name.c_str());
     return true;
+}
+
+string get_device_name(string interface_name)
+{
+    uci_package *pkg = NULL;
+    uci_element *e;
+
+    if (access(NETWORK_CONFIG_FILE, F_OK) == -1)
+        return "";
+
+    uci_context *ctx = uci_alloc_context();
+
+    if (UCI_OK != uci_load(ctx, NETWORK_CONFIG_FILE, &pkg))
+    {
+        uci_free_context(ctx);
+        ctx = NULL;
+        return "";
+    }
+
+    uci_foreach_element(&pkg->sections, e)
+    {
+        uci_section *s = uci_to_section(e);
+
+        string section_type = s->type;
+        if (section_type == "interface")
+        {
+            if (s->anonymous == false && s->e.name == interface_name)
+            {
+                string device_name = lookup_option_string(ctx, s, "device");
+
+                if (device_name != "")
+                    return device_name;
+            }
+        }
+    }
+
+    uci_unload(ctx, pkg);
+    uci_free_context(ctx);
+    ctx = NULL;
+
+    return "";
 }
 
 void quick_device::add_device(string device_name)
@@ -467,7 +509,7 @@ void signal_handler(int signum)
     {
         if (qroute.active)
             qroute.clean();
-    }        
+    }
 
     exit(signum);
 }
@@ -486,7 +528,14 @@ int main(int argc, char **argv)
 
     if (qroute.config.interface != "")
     {
-        if (lookup_interface(qroute.config.interface, 0))
+        string device_name = get_device_name(qroute.config.interface);
+
+        if (device_name == "")
+            device_name = qroute.config.interface;
+
+        printf("device_name %s\n", device_name.c_str());
+
+        if (lookup_device(qroute.config.interface, 0))
             qroute.process();
     }
 
