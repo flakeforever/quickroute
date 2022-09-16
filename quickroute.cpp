@@ -259,6 +259,9 @@ void quick_route::wait_gateway()
 {
     quick_interface *interface = config.get_interface(config.interface);
 
+    if (interface == NULL)
+        return;
+
     if (interface->gateway != "")
     {
         bool ip_available = false;
@@ -299,6 +302,9 @@ bool quick_route::add_ip_route()
     char result[CMD_RESULT_BUF_SIZE] = {0};
     quick_interface *interface = config.get_interface(config.interface);
 
+    if (interface == NULL)
+        return false;
+
     if (interface->gateway != "")
         sprintf(command, "ip route add default via %s table %d",
                 interface->gateway.c_str(), config.route_table);
@@ -318,6 +324,9 @@ bool quick_route::delete_ip_route()
     char result[CMD_RESULT_BUF_SIZE] = {0};
     quick_interface *interface = config.get_interface(config.interface);
 
+    if (interface == NULL)
+        return false;
+        
     if (interface->gateway != "")
         sprintf(command, "ip route del default via %s table %d",
                 interface->gateway.c_str(), config.route_table);
