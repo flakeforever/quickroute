@@ -23,8 +23,3 @@ config.o: config.cpp
 clean:
 	rm -f $(OBJS) $(OUT)
 
-install: 
-# install -m 0755 $(OUT) $(prefix)/sbin
-
-uninstall:
-# rm -f $(prefix)/sbin/$(OUT)
