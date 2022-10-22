@@ -62,7 +62,6 @@ quick_interface::~quick_interface()
 quick_ipset::quick_ipset()
 {
     name = "";
-    enabled = false;
     inverted = false;
 }
 quick_ipset::~quick_ipset()
@@ -98,14 +97,14 @@ void quick_config::reset()
     fwmark = 0;
     route_table = 0;
 
+    src_type = 0;
     src_ip = "";
     src_ipset.name = "";
-    src_ipset.enabled = false;
     src_ipset.inverted = false;   
 
+    dest_type = 0;
     dest_ip = "";
     dest_ipset.name = "";
-    dest_ipset.enabled = false;
     dest_ipset.inverted = false;    
 
     for (size_t i = 0; i < interface_list.size(); i++)

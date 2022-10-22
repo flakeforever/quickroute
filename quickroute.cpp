@@ -347,7 +347,7 @@ bool quick_route::add_prerouting()
     char dest_address[255] = {0};
     char result[CMD_RESULT_BUF_SIZE] = {0};
 
-    if (config.src_ipset.enabled)
+    if (config.src_type == 1)
     {
         if (!config.src_ipset.inverted)
             sprintf(src_address, "-m set --match-set %s src",
@@ -356,12 +356,12 @@ bool quick_route::add_prerouting()
             sprintf(src_address, "-m set ! --match-set %s src",
                     config.src_ipset.name.c_str());
     }
-    else
+    else if (config.src_type == 0)
         sprintf(src_address, "-s %s", config.src_ip.c_str());
 
     if (config.mode == "rule")
     {
-        if (config.dest_ipset.enabled)
+        if (config.dest_type == 1)
         {
             if (!config.dest_ipset.inverted)
                 sprintf(dest_address, "-m set --match-set %s dst",
@@ -370,7 +370,7 @@ bool quick_route::add_prerouting()
                 sprintf(dest_address, "-m set ! --match-set %s dst",
                         config.dest_ipset.name.c_str());
         }
-        else
+        else if (config.dest_type == 0)
             sprintf(dest_address, "-d %s", config.dest_ip.c_str());
     }
     else if (config.mode == "global")
@@ -392,7 +392,7 @@ bool quick_route::delete_prerouting()
     char dest_address[255] = {0};
     char result[CMD_RESULT_BUF_SIZE] = {0};
 
-    if (config.src_ipset.enabled)
+    if (config.src_type == 1)
     {
         if (!config.src_ipset.inverted)
             sprintf(src_address, "-m set --match-set %s src",
@@ -401,12 +401,12 @@ bool quick_route::delete_prerouting()
             sprintf(src_address, "-m set ! --match-set %s src",
                     config.src_ipset.name.c_str());
     }
-    else
+    else if (config.src_type == 0)
         sprintf(src_address, "-s %s", config.src_ip.c_str());
 
     if (config.mode == "rule")
     {
-        if (config.dest_ipset.enabled)
+        if (config.dest_type == 1)
         {
             if (!config.dest_ipset.inverted)
                 sprintf(dest_address, "-m set --match-set %s dst",
@@ -415,7 +415,7 @@ bool quick_route::delete_prerouting()
                 sprintf(dest_address, "-m set ! --match-set %s dst",
                         config.dest_ipset.name.c_str());
         }
-        else
+        else if (config.dest_type == 0)
             sprintf(dest_address, "-d %s", config.dest_ip.c_str());
     }
     else if (config.mode == "global")
@@ -474,14 +474,14 @@ bool quick_route::load_config(string config_file)
             config.fwmark = lookup_option_integer(ctx, s, "fwmark");
             config.route_table = lookup_option_integer(ctx, s, "route_table");
 
+            config.src_type = lookup_option_integer(ctx, s, "src_type");
             config.src_ip = lookup_option_string(ctx, s, "src_ip");
             config.src_ipset.name = lookup_option_string(ctx, s, "src_ipset_name");
-            config.src_ipset.enabled = lookup_option_boolean(ctx, s, "src_ipset_enabled");
             config.src_ipset.inverted = lookup_option_boolean(ctx, s, "src_ipset_inverted");
 
+            config.dest_type = lookup_option_integer(ctx, s, "dest_type");
             config.dest_ip = lookup_option_string(ctx, s, "dest_ip");
             config.dest_ipset.name = lookup_option_string(ctx, s, "dest_ipset_name");
-            config.dest_ipset.enabled = lookup_option_boolean(ctx, s, "dest_ipset_enabled");
             config.dest_ipset.inverted = lookup_option_boolean(ctx, s, "dest_ipset_inverted");
         }
         else if (section_type == "interface")

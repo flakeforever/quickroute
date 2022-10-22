@@ -44,7 +44,6 @@ class quick_ipset
 {
 public:
     string name;
-    bool enabled;
     bool inverted;
 
     quick_ipset();
@@ -58,8 +57,10 @@ public:
     string mode;
     int fwmark;
     int route_table;
+    int src_type;
     string src_ip;
     quick_ipset src_ipset;
+    int dest_type;
     string dest_ip;
     quick_ipset dest_ipset;
     vector<quick_interface *> interface_list;
